@@ -23,9 +23,18 @@ export interface Artist {
   releases: Release[];
 }
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+let supabase: ReturnType<typeof createClient> | null = null;
+
+try {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  if (supabaseUrl && supabaseAnonKey) {
+    supabase = createClient(supabaseUrl, supabaseAnonKey);
+  }
+} catch (error) {
+  console.error('Failed to initialize Supabase:', error);
+}
 
 const fallbackArtists: Artist[] = [
   {
@@ -134,58 +143,85 @@ const fallbackArtists: Artist[] = [
 ];
 
 export async function loadArtistsFromDatabase(): Promise<Artist[]> {
+  if (!supabase) {
+    console.warn('Supabase not initialized, using fallback data');
+    return fallbackArtists;
+  }
+
   try {
     const { data: artistsData, error: artistsError } = await supabase
       .from('artists')
-      .select('id, name, artist_id');
+      .select('id, name, artist_id, password');
 
-    if (artistsError) throw artistsError;
-    if (!artistsData || artistsData.length === 0) return fallbackArtists;
+    if (artistsError) {
+      console.error('Error fetching artists:', artistsError);
+      return fallbackArtists;
+    }
+
+    if (!artistsData || artistsData.length === 0) {
+      return fallbackArtists;
+    }
 
     const artists: Artist[] = [];
 
     for (const artistRow of artistsData) {
-      const { data: releasesData, error: releasesError } = await supabase
-        .from('releases')
-        .select('id, title, type, release_date, cover_art_url')
-        .eq('artist_id', artistRow.id);
+      try {
+        const { data: releasesData, error: releasesError } = await supabase
+          .from('releases')
+          .select('id, title, type, release_date, cover_art_url')
+          .eq('artist_id', artistRow.id);
 
-      if (releasesError) throw releasesError;
+        if (releasesError) {
+          console.error('Error fetching releases for', artistRow.name, releasesError);
+          continue;
+        }
 
-      const releases: Release[] = [];
+        const releases: Release[] = [];
 
-      for (const releaseRow of releasesData || []) {
-        const { data: tracksData, error: tracksError } = await supabase
-          .from('tracks')
-          .select('id, title, duration, explicit')
-          .eq('release_id', releaseRow.id)
-          .order('created_at', { ascending: true });
+        for (const releaseRow of releasesData || []) {
+          try {
+            const { data: tracksData, error: tracksError } = await supabase
+              .from('tracks')
+              .select('id, title, duration, explicit')
+              .eq('release_id', releaseRow.id)
+              .order('created_at', { ascending: true });
 
-        if (tracksError) throw tracksError;
+            if (tracksError) {
+              console.error('Error fetching tracks for', releaseRow.title, tracksError);
+              continue;
+            }
 
-        releases.push({
-          id: releaseRow.id,
-          title: releaseRow.title,
-          type: releaseRow.type as 'album' | 'single',
-          releaseDate: releaseRow.release_date,
-          coverArt: releaseRow.cover_art_url || '',
-          tracks: (tracksData || []).map(t => ({
-            id: t.id,
-            title: t.title,
-            duration: t.duration,
-            explicit: t.explicit || false,
-          })),
+            releases.push({
+              id: releaseRow.id,
+              title: releaseRow.title,
+              type: releaseRow.type as 'album' | 'single',
+              releaseDate: releaseRow.release_date,
+              coverArt: releaseRow.cover_art_url || '',
+              tracks: (tracksData || []).map(t => ({
+                id: t.id,
+                title: t.title,
+                duration: t.duration,
+                explicit: t.explicit || false,
+              })),
+            });
+          } catch (error) {
+            console.error('Error processing release:', error);
+            continue;
+          }
+        }
+
+        artists.push({
+          id: artistRow.id,
+          name: artistRow.name,
+          password: artistRow.password || '',
+          releases: releases.sort((a, b) =>
+            new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime()
+          ),
         });
+      } catch (error) {
+        console.error('Error processing artist:', error);
+        continue;
       }
-
-      artists.push({
-        id: artistRow.id,
-        name: artistRow.name,
-        password: '', // Passwords not stored in DB for security
-        releases: releases.sort((a, b) =>
-          new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime()
-        ),
-      });
     }
 
     return artists.length > 0 ? artists : fallbackArtists;

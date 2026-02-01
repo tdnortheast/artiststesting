@@ -14,17 +14,48 @@ export default function Dashboard({ artistId, onLogout }: DashboardProps) {
   const [artist, setArtist] = useState<Artist | null>(null);
   const [selectedRelease, setSelectedRelease] = useState<Release | null>(null);
   const [isUploadMode, setIsUploadMode] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
-      const artists = await loadArtistsFromDatabase();
-      const foundArtist = artists.find((a) => a.id === artistId);
-      setArtist(foundArtist || null);
+      try {
+        const artists = await loadArtistsFromDatabase();
+        if (mounted) {
+          const foundArtist = artists.find((a) => a.id === artistId);
+          setArtist(foundArtist || null);
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error('Failed to load artist:', error);
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, [artistId]);
 
-  if (!artist) {
+  if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center text-white">Loading...</div>;
+  }
+
+  if (!artist) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center text-white gap-4">
+        <p>Artist not found</p>
+        <button
+          onClick={onLogout}
+          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg transition"
+        >
+          Back to Login
+        </button>
+      </div>
+    );
   }
 
   return (
