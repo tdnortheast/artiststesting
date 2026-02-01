@@ -1,3 +1,5 @@
+import { createClient } from '@supabase/supabase-js';
+
 export interface Track {
   id: string;
   title: string;
@@ -21,7 +23,11 @@ export interface Artist {
   releases: Release[];
 }
 
-export const artists: Artist[] = [
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+const fallbackArtists: Artist[] = [
   {
     id: 'yuno-sweez',
     name: 'Yuno $weez',
@@ -126,3 +132,67 @@ export const artists: Artist[] = [
     ],
   },
 ];
+
+export async function loadArtistsFromDatabase(): Promise<Artist[]> {
+  try {
+    const { data: artistsData, error: artistsError } = await supabase
+      .from('artists')
+      .select('id, name, artist_id');
+
+    if (artistsError) throw artistsError;
+    if (!artistsData || artistsData.length === 0) return fallbackArtists;
+
+    const artists: Artist[] = [];
+
+    for (const artistRow of artistsData) {
+      const { data: releasesData, error: releasesError } = await supabase
+        .from('releases')
+        .select('id, title, type, release_date, cover_art_url')
+        .eq('artist_id', artistRow.id);
+
+      if (releasesError) throw releasesError;
+
+      const releases: Release[] = [];
+
+      for (const releaseRow of releasesData || []) {
+        const { data: tracksData, error: tracksError } = await supabase
+          .from('tracks')
+          .select('id, title, duration, explicit')
+          .eq('release_id', releaseRow.id)
+          .order('created_at', { ascending: true });
+
+        if (tracksError) throw tracksError;
+
+        releases.push({
+          id: releaseRow.id,
+          title: releaseRow.title,
+          type: releaseRow.type as 'album' | 'single',
+          releaseDate: releaseRow.release_date,
+          coverArt: releaseRow.cover_art_url || '',
+          tracks: (tracksData || []).map(t => ({
+            id: t.id,
+            title: t.title,
+            duration: t.duration,
+            explicit: t.explicit || false,
+          })),
+        });
+      }
+
+      artists.push({
+        id: artistRow.id,
+        name: artistRow.name,
+        password: '', // Passwords not stored in DB for security
+        releases: releases.sort((a, b) =>
+          new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime()
+        ),
+      });
+    }
+
+    return artists.length > 0 ? artists : fallbackArtists;
+  } catch (error) {
+    console.error('Failed to load artists from database:', error);
+    return fallbackArtists;
+  }
+}
+
+export { fallbackArtists as artists };

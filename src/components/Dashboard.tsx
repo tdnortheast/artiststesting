@@ -1,10 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LogOut, Music, Plus } from 'lucide-react';
-import { artists } from '../data/artists';
+import { loadArtistsFromDatabase, Release, Artist } from '../data/artists';
 import ReleaseCard from './ReleaseCard';
 import ReleaseDetail from './ReleaseDetail';
 import UploadRelease from './UploadRelease';
-import { Release } from '../data/artists';
 
 interface DashboardProps {
   artistId: string;
@@ -12,12 +11,20 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ artistId, onLogout }: DashboardProps) {
-  const artist = artists.find((a) => a.id === artistId);
+  const [artist, setArtist] = useState<Artist | null>(null);
   const [selectedRelease, setSelectedRelease] = useState<Release | null>(null);
   const [isUploadMode, setIsUploadMode] = useState(false);
 
+  useEffect(() => {
+    (async () => {
+      const artists = await loadArtistsFromDatabase();
+      const foundArtist = artists.find((a) => a.id === artistId);
+      setArtist(foundArtist || null);
+    })();
+  }, [artistId]);
+
   if (!artist) {
-    return <div className="min-h-screen flex items-center justify-center text-white">Artist not found</div>;
+    return <div className="min-h-screen flex items-center justify-center text-white">Loading...</div>;
   }
 
   return (

@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Lock, Music } from 'lucide-react';
-import { artists } from '../data/artists';
+import { loadArtistsFromDatabase, Artist } from '../data/artists';
 
 interface LoginProps {
   onLogin: (artistId: string) => void;
@@ -10,6 +10,14 @@ export default function Login({ onLogin }: LoginProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [artists, setArtists] = useState<Artist[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const loadedArtists = await loadArtistsFromDatabase();
+      setArtists(loadedArtists);
+    })();
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
